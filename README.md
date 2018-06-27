@@ -2,7 +2,7 @@
 Add total amount for FCoin exchnage finance
 
 ## Install
-Tampermonkey: [Greasy fork]()
+Tampermonkey: [Greasy fork](https://greasyfork.org/zh-CN/scripts/369863-fcoin-helper)
 
 ## Crypto
 ```
