@@ -1,39 +1,73 @@
 // ==UserScript==
 // @name         FCoin Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.1.1
 // @description  Add total amount for FCoin exchnage finance
 // @supportURL   https://github.com/yanghuan/FCoin-Helper/issues
-// @contributionURL    https://github.com/yanghuan/FCoin-Helper#crypto
 // @author       YANG Huan
-// @match        https://exchange.fcoin.com/finance
+// @match        https://exchange.fcoin.com/*
 // @require      https://cdn.bootcss.com/jquery/1.8.3/jquery.min.js
 // @grant        none
+// @contributionURL    https://github.com/yanghuan/FCoin-Helper#crypto
 // ==/UserScript==
 
 (function() {
     'use strict';
     var tokens = [];
     var curPrices = {};
-    function check() {
+    var cnyRate = null;
+    function isFinancePage() {
+        return document.URL == "https://exchange.fcoin.com/finance";
+    }
+    function getBalanceTokens() {
         let rts =  $(".rt-tbody");
         let trs = rts.children(".rt-tr-group");
-        if (trs.length > 0) {
-            let list = []
-            trs.each(function () {
-                let tds = $(this).find(".rt-td");
-                let symbol = $(tds[0]).children().text();
-                let count = $(tds[1]).children().text();
-                let remain = $(tds[2]).children().text();
-                tokens.push({ "symbol": symbol, "count": count, "remain": remain });
-            });
-            getPricesFromWebSocket();
-        } else {
+        let tokens = [];
+        for (let i = 0; i < trs.length; ++i) {
+            let tr = trs[i];
+            let tds = $(tr).find(".rt-td");
+            let symbol = $(tds[0]).children().text();
+            let count = $(tds[1]).children().text();
+            let available = $(tds[2]).children().text();
+            tokens.push({ "symbol": symbol, "count": count, "available": available });
+        }
+        return tokens;
+    }
+    function check() {
+        if (isFinancePage()) {
+            tokens = getBalanceTokens();
+            if (tokens.length > 0) {
+                let lis = $("[role='tab']");
+                for (let i = 1; i < lis.length; ++i) {
+                    lis[i].click();
+                    let curTolens = getBalanceTokens();
+                    if (curTolens.length > 0) {
+                        tokens = tokens.concat(curTolens);
+                    }
+                }
+                lis[0].click();
+                getPricesFromWebSocket();
+            }
+            else {
+                registerCheck();
+            }
+        }
+        else
+        {
             registerCheck();
         }
     }
-    function registerCheck() {
-        setTimeout(check, 1000);
+    function registerCheck(time) {
+        setTimeout(check, time || 1000);
+    }
+    function checkCNYRate() {
+        let server = $(".Dropdown-placeholder").text();
+        if (server == "简体中文") {
+            $.getJSON("https://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20json%20where%20url%20%3D%20%22https%3A%2F%2Fwww.fcoin.com%2Fapi%2Fcommon%2Fget_rate%22&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys", function (data) {
+              let rate = data.query.results.json.data;
+              cnyRate = parseFloat(rate);
+            });
+        }
     }
     function getPricesFromWebSocket() {
         let webSocket = new WebSocket("wss://ws.fcoin.com/api/v2/ws");
@@ -90,7 +124,7 @@
             webSocket.send(JSON.stringify({"cmd": "ping","args":[ Date.parse(new Date())]}));
         }, 40000);
     }
-    function spltSymbol(symbol) {
+    function spiltSymbol(symbol) {
         let len = symbol.length;
         let last = symbol[len - 1];
         let token, price;
@@ -116,7 +150,7 @@
         return [token, price];
     }
     function updatePrice(symbol, price) {
-        let a = spltSymbol(symbol);
+        let a = spiltSymbol(symbol);
         let token = a[0];
         let priceToken = a[1];
         let info = tokens.find(i => i.symbol == token);
@@ -125,7 +159,7 @@
             update();
         }
         else {
-            console.wran(`${token} is not found in finance`);
+            console.warn(`${token} is not found in finance`);
         }
     }
     function getPriceOfUSDT(t) {
@@ -164,21 +198,27 @@
         return total;
     }
     function show(datas) {
-        let s = datas.join("/ ");
-        let capital = $(".hscFzz");
+        let infoString = datas.join("/ ");
+        let capital = $(".fzPqWC");
         let span = capital.children("span");
-        if (span.length > 0) {
-            span.html(s);
+        let next = span.children("span");
+        if (next.length > 0) {
+            next.html(infoString);
         }
         else {
-            capital.append(`<span>${s}</span>`);
+            span.append(`<span>${infoString}</span>`);
         }
     }
     function update() {
         let datas = []
         let usdt = getTotalUSDT();
         if (usdt != null) {
-          let usdtString = `  ${usdt.toFixed(2)} usdt`;
+          if (cnyRate != null) {
+              let cny = usdt * cnyRate;
+              let cnyString = `${cny.toFixed(2)} cny`;
+              datas.push(cnyString);
+          }
+          let usdtString = `${usdt.toFixed(2)} usdt`;
           datas.push(usdtString);
           let btcString = `${(usdt / curPrices.btc).toFixed(4)} btc`;
           datas.push(btcString);
@@ -188,7 +228,8 @@
         }
     }
     $(function () {
-        registerCheck();
         //debugger;
+        checkCNYRate();
+        registerCheck();
     });
 })();
